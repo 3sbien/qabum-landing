@@ -1,0 +1,25 @@
+{
+  "version": 6,
+  "updatedAt": "2025-12-29T05:15:58.024Z",
+  "global": {
+    "defaultMdr": 0.03,
+    "defaultQabumMarginCap": 0.05,
+    "defaultRepaymentRate": 0.1,
+    "maxAdvanceMultipleOfAvgMonthlySales": 1,
+    "minPaybackMonths": 1,
+    "maxPaybackMonths": 12,
+    "minPlatformAgeMonths": 3,
+    "minActiveMonthsLastN": 3
+  },
+  "sectorCaps": {
+    "HIGH_SENSITIVITY": {
+      "ethicalCap": 0.022
+    },
+    "STANDARD_PYME": {
+      "ethicalCap": 0.02
+    },
+    "HIGH_MARGIN_SERVICE": {
+      "ethicalCap": 0.015
+    }
+  }
+}

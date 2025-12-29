@@ -3,9 +3,10 @@ import {
     TransactionSplitResult,
     CalculateSplitParams,
 } from '../types/qabum';
-import { getStoreConfig } from './configService';
+import { getStoreConfig, getRiskConfig } from './configService'; // Import getRiskConfig
 import { getEthicalCapForSector } from '../utils/ethicalCap';
 import { getMerchantSalesSnapshot } from './dataService';
+import { MerchantSector } from '../types/risk';
 
 /**
  * Función clave para calcular el desglose financiero (split) de una transacción.
@@ -19,23 +20,39 @@ export async function calculateSplit(
 ): Promise<TransactionSplitResult> {
     const { transactionAmount, storeId, merchantId, hasActiveAdvance } = params;
 
-    const config: StoreConfig = getStoreConfig(storeId);
+    // Load store config (legacy/structural) AND risk config (dynamic overrides)
+    const _storeConfig: StoreConfig = getStoreConfig(storeId);
+    const riskConfig = await getRiskConfig();
 
     // Fetch merchant snapshot to determine sector and apply sector-specific ethical cap
     const snapshot = await getMerchantSalesSnapshot({ storeId, merchantId });
-    const sector = snapshot.sector as any; // MerchantSector (may be undefined)
-    const ethicalCap = getEthicalCapForSector(sector);
+    const sector = snapshot.sector as MerchantSector | undefined;
+
+    // Determine ethical cap from dynamic config, fallback to utils if missing/undefined
+    let ethicalCap: number;
+    if (sector && riskConfig.sectorCaps[sector]) {
+        ethicalCap = riskConfig.sectorCaps[sector].ethicalCap;
+    } else {
+        ethicalCap = getEthicalCapForSector(sector);
+    }
+
+    // Use global risk parameters from the dynamic config
+    // We prioritize the dynamic config over the hardcoded store config mock
+    const globalParams = riskConfig.global;
 
     // --- 1. Base rates (intended rates) ---
     // 1.1 Bank MDR – highest priority, never altered
-    const mdrRate = config.defaultMdr;
+    const mdrRate = globalParams.defaultMdr;
 
     // 1.2 Qabum margin – fixed by config, never altered by the cap logic
-    const qabumMarginRate = Math.min(0.007, config.defaultQabumMarginCap);
+    // Keeping the hard 0.7% (0.007) internal cap logic from before if it was intentional business logic? 
+    // "Math.min(0.007, config.defaultQabumMarginCap)"
+    // I will preserve the 0.007 constraint if it seems like a hard system limit, but use the dynamic config as the source.
+    const qabumMarginRate = Math.min(0.007, globalParams.defaultQabumMarginCap);
 
     // 1.3 Repayment rate – can be reduced to respect the ethical cap
     const originalRepaymentRate = hasActiveAdvance
-        ? config.defaultRepaymentRate
+        ? globalParams.defaultRepaymentRate
         : 0;
 
     // Compute the total take rate before applying any cap

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { evaluateAdvanceRequest } from '../../lib/services/riskService';
 import { AdvanceEligibilityResult } from '../../lib/types/risk';
+import { getRiskConfig } from '../../lib/services/configService';
 
 /**
  * Endpoint API para solicitar una evaluación de elegibilidad de adelanto.
@@ -21,11 +22,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const amount = Number(requestedAmount) || 0;
 
     try {
+        // Fetch fresh dynamic risk config
+        const riskConfig = await getRiskConfig();
+
         const assessment: AdvanceEligibilityResult = await evaluateAdvanceRequest({
             storeId: storeId as string,
             merchantId: merchantId as string,
             requestedAmount: amount
-        });
+        }, { riskConfig }); // Pass dynamic config
 
         // Return the assessment result directly as expected by the UI
         return res.status(200).json(assessment);

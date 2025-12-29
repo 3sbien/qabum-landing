@@ -30,9 +30,17 @@ export interface AdvanceEligibilityResult {
     requestedAmount: number;
     isEligible: boolean;
     approvedAmount: number;
-    riskProfile?: MerchantRiskProfile;
+    riskProfile: MerchantRiskProfile;
     decisionReason: string;
     estimatedPaybackMonths?: number | null;
+    // New audit/visibility fields
+    merchantSectorUsed?: MerchantSector;
+    ethicalCapUsed?: number;
+    riskConfigVersionUsed?: number;
+    riskConfigUpdatedAtUsed?: string;
+    // Optional: Effective take rate info if calculated during eligibility
+    // Note: strictly this belongs to transaction split, but if we clamp repayment rate here, 
+    // it helps to show the cap used.
 }
 export type MerchantSector =
     | 'HIGH_SENSITIVITY'    // supermercados, farmacias grandes, mayoristas

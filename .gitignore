@@ -11,3 +11,9 @@ yarn-error.log*
 .vercel
 
 tsconfig.tsbuildinfo
+
+# Local secrets
+.env.local
+# Local audit logs
+data/riskConfig.audit.jsonl
+
