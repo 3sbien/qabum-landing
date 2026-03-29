@@ -8,9 +8,30 @@ import { RiskConfig } from '../types/riskConfig';
  * This file uses 'fs' and should NOT be imported into client-side bundles.
  */
 
+type RiskConfigAuditMeta = {
+    reason?: string;
+    actor?: string;
+    userAgent?: string;
+    ip?: string;
+};
+
+type RiskConfigAuditEvent = {
+    ts: string;
+    actor: string;
+    reason: string;
+    userAgent?: string;
+    ip?: string;
+    version: number;
+    updatedAt: string;
+};
+
 const DATA_DIR = path.join(process.cwd(), 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'riskConfig.json');
 const AUDIT_FILE = path.join(DATA_DIR, 'riskConfig.audit.jsonl');
+
+const EDGE_CONFIG_KEY = 'riskConfig';
+const EDGE_CONFIG_AUDIT_KEY = 'riskConfigAudit';
+const EDGE_CONFIG_AUDIT_LIMIT = 20;
 
 // Conservative defaults as per requirement
 const DEFAULT_CONFIG: RiskConfig = {
@@ -33,6 +54,33 @@ const DEFAULT_CONFIG: RiskConfig = {
     }
 };
 
+function isVercelRuntime(): boolean {
+    return process.env.VERCEL === '1';
+}
+
+function getEdgeConfigId(): string {
+    const id = process.env.QABUM_EDGE_CONFIG_ID;
+    if (!id) {
+        throw new Error('Missing QABUM_EDGE_CONFIG_ID');
+    }
+    return id;
+}
+
+function getVercelApiToken(): string {
+    const token = process.env.VERCEL_API_TOKEN;
+    if (!token) {
+        throw new Error('Missing VERCEL_API_TOKEN');
+    }
+    return token;
+}
+
+function cloneDefaultConfig(): RiskConfig {
+    return JSON.parse(JSON.stringify({
+        ...DEFAULT_CONFIG,
+        updatedAt: new Date().toISOString(),
+    })) as RiskConfig;
+}
+
 async function ensureDataDir() {
     try {
         await fs.access(DATA_DIR);
@@ -41,56 +89,98 @@ async function ensureDataDir() {
     }
 }
 
-/**
- * Reads the current risk configuration from disk (server-side only).
- * Initializes with defaults if file is missing.
- */
-export async function getRiskConfig(): Promise<RiskConfig> {
+async function getEdgeConfigItem<T>(key: string): Promise<T | null> {
+    const edgeConfigId = getEdgeConfigId();
+    const apiToken = getVercelApiToken();
+
+    const response = await fetch(
+        `https://api.vercel.com/v1/edge-config/${edgeConfigId}/item/${encodeURIComponent(key)}`,
+        {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${apiToken}`,
+                'Content-Type': 'application/json',
+            },
+        },
+    );
+
+    if (response.status === 404) {
+        return null;
+    }
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Edge Config GET failed (${response.status}): ${text}`);
+    }
+
+    const payload = await response.json();
+    return (payload?.value ?? null) as T | null;
+}
+
+async function patchEdgeConfigItems(
+    items: Array<{
+        operation: 'create' | 'update' | 'upsert' | 'delete';
+        key: string;
+        value?: unknown;
+    }>,
+): Promise<void> {
+    const edgeConfigId = getEdgeConfigId();
+    const apiToken = getVercelApiToken();
+
+    const response = await fetch(
+        `https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`,
+        {
+            method: 'PATCH',
+            headers: {
+                Authorization: `Bearer ${apiToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ items }),
+        },
+    );
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Edge Config PATCH failed (${response.status}): ${text}`);
+    }
+}
+
+async function getRiskConfigLocal(): Promise<RiskConfig> {
     await ensureDataDir();
     try {
         const data = await fs.readFile(CONFIG_FILE, 'utf-8');
         return JSON.parse(data) as RiskConfig;
     } catch (error: any) {
         if (error.code === 'ENOENT') {
-            // File missing, write defaults and return them
-            await fs.writeFile(CONFIG_FILE, JSON.stringify(DEFAULT_CONFIG, null, 2), 'utf-8');
-            return DEFAULT_CONFIG;
+            const defaults = cloneDefaultConfig();
+            await fs.writeFile(CONFIG_FILE, JSON.stringify(defaults, null, 2), 'utf-8');
+            return defaults;
         }
         throw error;
     }
 }
 
-/**
- * Updates the risk configuration safely.
- * - Reads previous
- * - Writes next (atomic-ish)
- * - Appends audit log
- */
-export async function updateRiskConfig(next: RiskConfig, meta?: { reason?: string; actor?: string; userAgent?: string; ip?: string }): Promise<void> {
+async function updateRiskConfigLocal(next: RiskConfig, meta?: RiskConfigAuditMeta): Promise<RiskConfig> {
     await ensureDataDir();
 
-    // Read previous for audit
     let previous: RiskConfig | null = null;
     try {
         const data = await fs.readFile(CONFIG_FILE, 'utf-8');
-        previous = JSON.parse(data);
-    } catch (e) {
-        // ignore if previous doesn't exist
+        previous = JSON.parse(data) as RiskConfig;
+    } catch {
+        previous = null;
     }
 
-    // Set updated meta
-    next.updatedAt = new Date().toISOString();
-    // Increment version if previous exists
-    if (previous) {
-        next.version = previous.version + 1;
-    }
+    const persisted: RiskConfig = {
+        ...next,
+        updatedAt: new Date().toISOString(),
+        version: previous ? previous.version + 1 : 1,
+    };
 
-    // Write Config: Write to temp file then rename for atomicity
     const tempFile = `${CONFIG_FILE}.tmp`;
-    await fs.writeFile(tempFile, JSON.stringify(next, null, 2), 'utf-8');
+    await fs.writeFile(tempFile, JSON.stringify(persisted, null, 2), 'utf-8');
     await fs.rename(tempFile, CONFIG_FILE);
 
-    // Audit Log
     const auditEntry = {
         ts: new Date().toISOString(),
         actor: meta?.actor || 'unknown',
@@ -98,14 +188,77 @@ export async function updateRiskConfig(next: RiskConfig, meta?: { reason?: strin
         userAgent: meta?.userAgent,
         ip: meta?.ip,
         previous,
-        next
+        next: persisted,
     };
 
     try {
         await fs.appendFile(AUDIT_FILE, JSON.stringify(auditEntry) + '\n', 'utf-8');
     } catch (e) {
-        console.error("Failed to append audit log", e);
+        console.error('Failed to append audit log', e);
     }
+
+    return persisted;
+}
+
+async function getRiskConfigVercel(): Promise<RiskConfig> {
+    const existing = await getEdgeConfigItem<RiskConfig>(EDGE_CONFIG_KEY);
+    if (existing) {
+        return existing;
+    }
+    return cloneDefaultConfig();
+}
+
+async function updateRiskConfigVercel(next: RiskConfig, meta?: RiskConfigAuditMeta): Promise<RiskConfig> {
+    const previous = await getEdgeConfigItem<RiskConfig>(EDGE_CONFIG_KEY);
+
+    const persisted: RiskConfig = {
+        ...next,
+        updatedAt: new Date().toISOString(),
+        version: previous ? previous.version + 1 : 1,
+    };
+
+    const currentAudit = (await getEdgeConfigItem<RiskConfigAuditEvent[]>(EDGE_CONFIG_AUDIT_KEY)) || [];
+
+    const auditEvent: RiskConfigAuditEvent = {
+        ts: new Date().toISOString(),
+        actor: meta?.actor || 'unknown',
+        reason: meta?.reason || '',
+        userAgent: meta?.userAgent,
+        ip: meta?.ip,
+        version: persisted.version,
+        updatedAt: persisted.updatedAt,
+    };
+
+    const nextAudit = [...currentAudit, auditEvent].slice(-EDGE_CONFIG_AUDIT_LIMIT);
+
+    await patchEdgeConfigItems([
+        { operation: 'upsert', key: EDGE_CONFIG_KEY, value: persisted },
+        { operation: 'upsert', key: EDGE_CONFIG_AUDIT_KEY, value: nextAudit },
+    ]);
+
+    return persisted;
+}
+
+/**
+ * Reads the current risk configuration.
+ * Local uses filesystem, Vercel uses Edge Config.
+ */
+export async function getRiskConfig(): Promise<RiskConfig> {
+    if (isVercelRuntime()) {
+        return getRiskConfigVercel();
+    }
+    return getRiskConfigLocal();
+}
+
+/**
+ * Updates the risk configuration safely.
+ * Local writes filesystem + audit file, Vercel writes Edge Config + lightweight audit.
+ */
+export async function updateRiskConfig(next: RiskConfig, meta?: RiskConfigAuditMeta): Promise<RiskConfig> {
+    if (isVercelRuntime()) {
+        return updateRiskConfigVercel(next, meta);
+    }
+    return updateRiskConfigLocal(next, meta);
 }
 
 // SIMULACIÓN: Mapa en memoria de las configuraciones de las tiendas.
