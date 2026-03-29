@@ -32,6 +32,7 @@ const AUDIT_FILE = path.join(DATA_DIR, 'riskConfig.audit.jsonl');
 const EDGE_CONFIG_KEY = 'riskConfig';
 const EDGE_CONFIG_AUDIT_KEY = 'riskConfigAudit';
 const EDGE_CONFIG_AUDIT_LIMIT = 20;
+const DEFAULT_VERCEL_TEAM_SLUG = '3sbiens-projects';
 
 // Conservative defaults as per requirement
 const DEFAULT_CONFIG: RiskConfig = {
@@ -74,6 +75,24 @@ function getVercelApiToken(): string {
     return token;
 }
 
+function getVercelTeamQueryString(): string {
+    const explicitTeamId = process.env.QABUM_VERCEL_TEAM_ID?.trim();
+    if (explicitTeamId) {
+        return `?teamId=${encodeURIComponent(explicitTeamId)}`;
+    }
+
+    const explicitTeamSlug = process.env.QABUM_VERCEL_TEAM_SLUG?.trim();
+    if (explicitTeamSlug) {
+        return `?slug=${encodeURIComponent(explicitTeamSlug)}`;
+    }
+
+    return `?slug=${encodeURIComponent(DEFAULT_VERCEL_TEAM_SLUG)}`;
+}
+
+function buildEdgeConfigUrl(pathname: string): string {
+    return `https://api.vercel.com${pathname}${getVercelTeamQueryString()}`;
+}
+
 function cloneDefaultConfig(): RiskConfig {
     return JSON.parse(JSON.stringify({
         ...DEFAULT_CONFIG,
@@ -94,7 +113,7 @@ async function getEdgeConfigItem<T>(key: string): Promise<T | null> {
     const apiToken = getVercelApiToken();
 
     const response = await fetch(
-        `https://api.vercel.com/v1/edge-config/${edgeConfigId}/item/${encodeURIComponent(key)}`,
+        buildEdgeConfigUrl(`/v1/edge-config/${edgeConfigId}/item/${encodeURIComponent(key)}`),
         {
             method: 'GET',
             headers: {
@@ -128,7 +147,7 @@ async function patchEdgeConfigItems(
     const apiToken = getVercelApiToken();
 
     const response = await fetch(
-        `https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`,
+        buildEdgeConfigUrl(`/v1/edge-config/${edgeConfigId}/items`),
         {
             method: 'PATCH',
             headers: {
