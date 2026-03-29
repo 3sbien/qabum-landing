@@ -54,8 +54,8 @@ const DEFAULT_CONFIG: RiskConfig = {
     }
 };
 
-function isVercelRuntime(): boolean {
-    return process.env.VERCEL === '1';
+function hasEdgeConfigRuntime(): boolean {
+    return Boolean(process.env.QABUM_EDGE_CONFIG_ID && process.env.VERCEL_API_TOKEN);
 }
 
 function getEdgeConfigId(): string {
@@ -241,10 +241,10 @@ async function updateRiskConfigVercel(next: RiskConfig, meta?: RiskConfigAuditMe
 
 /**
  * Reads the current risk configuration.
- * Local uses filesystem, Vercel uses Edge Config.
+ * Prefer Edge Config whenever the required runtime credentials exist.
  */
 export async function getRiskConfig(): Promise<RiskConfig> {
-    if (isVercelRuntime()) {
+    if (hasEdgeConfigRuntime()) {
         return getRiskConfigVercel();
     }
     return getRiskConfigLocal();
@@ -252,10 +252,10 @@ export async function getRiskConfig(): Promise<RiskConfig> {
 
 /**
  * Updates the risk configuration safely.
- * Local writes filesystem + audit file, Vercel writes Edge Config + lightweight audit.
+ * Prefer Edge Config whenever the required runtime credentials exist.
  */
 export async function updateRiskConfig(next: RiskConfig, meta?: RiskConfigAuditMeta): Promise<RiskConfig> {
-    if (isVercelRuntime()) {
+    if (hasEdgeConfigRuntime()) {
         return updateRiskConfigVercel(next, meta);
     }
     return updateRiskConfigLocal(next, meta);
