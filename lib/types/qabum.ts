@@ -17,6 +17,8 @@ export interface TransactionSplitResult {
     merchantNetAmount: number;
     effectiveTakeRate: number;
     capExceeded: boolean;
+    /** Final capped repayment rate exposed to UI/reporting */
+    recommendedRepaymentRate?: number;
 }
 
 export interface CalculateSplitParams {

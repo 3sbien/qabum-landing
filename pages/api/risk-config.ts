@@ -25,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             if (!validation.ok) {
                 return res.status(400).json({
                     message: 'Validation failed',
-                    errors: validation.errors
+                    errors: (validation as { errors: string[] }).errors
                 });
             }
 
