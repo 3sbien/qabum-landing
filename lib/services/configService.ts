@@ -55,8 +55,24 @@ const DEFAULT_CONFIG: RiskConfig = {
     }
 };
 
-function hasEdgeConfigRuntime(): boolean {
+function isVercelServerlessRuntime(): boolean {
+    return process.cwd().startsWith('/var/task');
+}
+
+function hasEdgeConfigCredentials(): boolean {
     return Boolean(process.env.QABUM_EDGE_CONFIG_ID && process.env.VERCEL_API_TOKEN);
+}
+
+function shouldUseEdgeConfig(): boolean {
+    if (hasEdgeConfigCredentials()) {
+        return true;
+    }
+
+    if (isVercelServerlessRuntime()) {
+        throw new Error('Vercel runtime detected but QABUM_EDGE_CONFIG_ID or VERCEL_API_TOKEN is missing at runtime');
+    }
+
+    return false;
 }
 
 function getEdgeConfigId(): string {
@@ -263,7 +279,7 @@ async function updateRiskConfigVercel(next: RiskConfig, meta?: RiskConfigAuditMe
  * Prefer Edge Config whenever the required runtime credentials exist.
  */
 export async function getRiskConfig(): Promise<RiskConfig> {
-    if (hasEdgeConfigRuntime()) {
+    if (shouldUseEdgeConfig()) {
         return getRiskConfigVercel();
     }
     return getRiskConfigLocal();
@@ -274,7 +290,7 @@ export async function getRiskConfig(): Promise<RiskConfig> {
  * Prefer Edge Config whenever the required runtime credentials exist.
  */
 export async function updateRiskConfig(next: RiskConfig, meta?: RiskConfigAuditMeta): Promise<RiskConfig> {
-    if (hasEdgeConfigRuntime()) {
+    if (shouldUseEdgeConfig()) {
         return updateRiskConfigVercel(next, meta);
     }
     return updateRiskConfigLocal(next, meta);
