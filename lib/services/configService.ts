@@ -147,13 +147,32 @@ async function getEdgeConfigItem<T>(key: string): Promise<T | null> {
         return null;
     }
 
+    const rawText = await response.text();
+
     if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Edge Config GET failed (${response.status}): ${text}`);
+        throw new Error(`Edge Config GET failed (${response.status}): ${rawText}`);
     }
 
-    const payload = await response.json();
-    return (payload?.value ?? null) as T | null;
+    if (!rawText.trim()) {
+        return null;
+    }
+
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(rawText);
+    } catch {
+        return rawText as T;
+    }
+
+    if (
+        parsed &&
+        typeof parsed === 'object' &&
+        'value' in (parsed as Record<string, unknown>)
+    ) {
+        return ((parsed as Record<string, unknown>).value ?? null) as T | null;
+    }
+
+    return parsed as T;
 }
 
 async function patchEdgeConfigItems(
