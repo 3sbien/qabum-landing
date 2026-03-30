@@ -41,7 +41,7 @@ const DEFAULT_CONFIG: RiskConfig = {
     global: {
         defaultMdr: 0.03,
         defaultQabumMarginCap: 0.05,
-        defaultRepaymentRate: 0.10, // 10%
+        defaultRepaymentRate: 0.10,
         maxAdvanceMultipleOfAvgMonthlySales: 1.0,
         minPaybackMonths: 1,
         maxPaybackMonths: 12,
@@ -59,8 +59,12 @@ function isVercelServerlessRuntime(): boolean {
     return process.cwd().startsWith('/var/task');
 }
 
+function getVercelApiTokenValue(): string | undefined {
+    return process.env.QABUM_VERCEL_API_TOKEN || process.env.VERCEL_API_TOKEN;
+}
+
 function hasEdgeConfigCredentials(): boolean {
-    return Boolean(process.env.QABUM_EDGE_CONFIG_ID && process.env.VERCEL_API_TOKEN);
+    return Boolean(process.env.QABUM_EDGE_CONFIG_ID && getVercelApiTokenValue());
 }
 
 function shouldUseEdgeConfig(): boolean {
@@ -69,7 +73,7 @@ function shouldUseEdgeConfig(): boolean {
     }
 
     if (isVercelServerlessRuntime()) {
-        throw new Error('Vercel runtime detected but QABUM_EDGE_CONFIG_ID or VERCEL_API_TOKEN is missing at runtime');
+        throw new Error('Vercel runtime detected but QABUM_EDGE_CONFIG_ID or QABUM_VERCEL_API_TOKEN is missing at runtime');
     }
 
     return false;
@@ -84,9 +88,9 @@ function getEdgeConfigId(): string {
 }
 
 function getVercelApiToken(): string {
-    const token = process.env.VERCEL_API_TOKEN;
+    const token = getVercelApiTokenValue();
     if (!token) {
-        throw new Error('Missing VERCEL_API_TOKEN');
+        throw new Error('Missing QABUM_VERCEL_API_TOKEN');
     }
     return token;
 }
@@ -274,10 +278,6 @@ async function updateRiskConfigVercel(next: RiskConfig, meta?: RiskConfigAuditMe
     return persisted;
 }
 
-/**
- * Reads the current risk configuration.
- * Prefer Edge Config whenever the required runtime credentials exist.
- */
 export async function getRiskConfig(): Promise<RiskConfig> {
     if (shouldUseEdgeConfig()) {
         return getRiskConfigVercel();
@@ -285,10 +285,6 @@ export async function getRiskConfig(): Promise<RiskConfig> {
     return getRiskConfigLocal();
 }
 
-/**
- * Updates the risk configuration safely.
- * Prefer Edge Config whenever the required runtime credentials exist.
- */
 export async function updateRiskConfig(next: RiskConfig, meta?: RiskConfigAuditMeta): Promise<RiskConfig> {
     if (shouldUseEdgeConfig()) {
         return updateRiskConfigVercel(next, meta);
@@ -296,35 +292,29 @@ export async function updateRiskConfig(next: RiskConfig, meta?: RiskConfigAuditM
     return updateRiskConfigLocal(next, meta);
 }
 
-// SIMULACIÓN: Mapa en memoria de las configuraciones de las tiendas.
-// Nota: En producción, esto se reemplazaría por una conexión a la tabla 'stores'.
 const STORE_CONFIG_MOCK: Record<string, StoreConfig> = {
     'ec-qabum-001': {
         id: 'ec-qabum-001',
         code: 'QABUM_EC',
         countryCode: 'EC',
         currencyCode: 'USD',
-        takeRateCap: 0.0300, // 3.00%
-        defaultMdr: 0.0220, // MDR Banco Típico: 2.20%
-        defaultQabumMarginCap: 0.0150, // Margen Qabum máximo: 1.50%
-        defaultRepaymentRate: 0.0080, // Tasa que se intenta aplicar al repago: 0.80%
+        takeRateCap: 0.0300,
+        defaultMdr: 0.0220,
+        defaultQabumMarginCap: 0.0150,
+        defaultRepaymentRate: 0.0080,
     },
     'uk-qabum-001': {
         id: 'uk-qabum-001',
         code: 'QABUM_UK',
         countryCode: 'GB',
         currencyCode: 'GBP',
-        takeRateCap: 0.0250, // 2.50%
-        defaultMdr: 0.0150, // 1.50%
-        defaultQabumMarginCap: 0.0100, // 1.00%
-        defaultRepaymentRate: 0.0050, // 0.50%
+        takeRateCap: 0.0250,
+        defaultMdr: 0.0150,
+        defaultQabumMarginCap: 0.0100,
+        defaultRepaymentRate: 0.0050,
     },
 };
 
-/**
- * Simula la obtención de la configuración global y ética de la tienda por su ID.
- * Lanza un error si la configuración no existe, garantizando que el motor de split no corra con datos nulos.
- */
 export function getStoreConfig(storeId: string): StoreConfig {
     const config = STORE_CONFIG_MOCK[storeId];
     if (!config) {
