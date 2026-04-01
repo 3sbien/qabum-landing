@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import Head from 'next/head';
 import { TransactionSplitResult } from '../lib/types/qabum';
-import { AdvanceEligibilityResult, MerchantSalesSnapshot } from '../lib/types/risk';
+import {
+    AdvanceEligibilityResult,
+    MerchantReputationProfile,
+    MerchantSalesSnapshot,
+} from '../lib/types/risk';
 
-// --- Interfaces ---
 interface TransactionInput {
     storeId: string;
     merchantId: string;
@@ -16,33 +19,25 @@ interface RiskRequestInput {
     requestedAmount: number | string;
 }
 
-// Resultado completo para el estado
 interface FullRiskResult extends AdvanceEligibilityResult {
     snapshot: MerchantSalesSnapshot;
+    reputation: MerchantReputationProfile;
 }
 
-// Constantes de estilo
 const PRIMARY_BLUE = '#00247D';
 const A4_WIDTH = '210mm';
-const A4_MIN_HEIGHT = '297mm';
-const TAKE_RATE_CAP_STORE = 0.03; // 3 %
+const TAKE_RATE_CAP_STORE = 0.03;
 
 const BackOfficePage: React.FC = () => {
-    // Estado fijo de UI
     const [generatedAt] = useState(() => new Date());
-    const [refId] = useState(() =>
-        Math.random().toString(36).substr(2, 9).toUpperCase(),
-    );
+    const [refId] = useState(() => Math.random().toString(36).substr(2, 9).toUpperCase());
 
-    // Estados core financiero
     const [splitInput, setSplitInput] = useState<TransactionInput>({
         storeId: 'ec-qabum-001',
         merchantId: 'merch-001',
         transactionAmount: 100,
     });
-    const [splitResult, setSplitResult] = useState<TransactionSplitResult | null>(
-        null,
-    );
+    const [splitResult, setSplitResult] = useState<TransactionSplitResult | null>(null);
     const [splitLoading, setSplitLoading] = useState(false);
     const [splitError, setSplitError] = useState<string | null>(null);
 
@@ -51,23 +46,17 @@ const BackOfficePage: React.FC = () => {
         merchantId: 'merch-001',
         requestedAmount: 1000,
     });
-    const [fullRiskResult, setFullRiskResult] = useState<FullRiskResult | null>(
-        null,
-    );
+    const [fullRiskResult, setFullRiskResult] = useState<FullRiskResult | null>(null);
     const [riskLoading, setRiskLoading] = useState(false);
     const [riskError, setRiskError] = useState<string | null>(null);
 
-    // Aprobación humana
-    const [humanAuthorizedAmount, setHumanAuthorizedAmount] =
-        useState<string>('');
+    const [humanAuthorizedAmount, setHumanAuthorizedAmount] = useState<string>('');
     const [approvalError, setApprovalError] = useState<string | null>(null);
     const [isApproved, setIsApproved] = useState(false);
     const [approvalDate, setApprovalDate] = useState<string | null>(null);
 
-    // Pestañas
     const [activeTab, setActiveTab] = useState<'input' | 'report'>('input');
 
-    // Handlers
     const handleSplitChange = (e: React.ChangeEvent<HTMLInputElement>) =>
         setSplitInput({ ...splitInput, [e.target.name]: e.target.value });
 
@@ -94,8 +83,7 @@ const BackOfficePage: React.FC = () => {
                 }),
             });
             const data = await response.json();
-            if (!response.ok)
-                throw new Error(data.message || 'Error processing transaction');
+            if (!response.ok) throw new Error(data.message || 'Error processing transaction');
             setSplitResult(data.data);
         } catch (err: any) {
             setSplitError(err.message);
@@ -114,7 +102,6 @@ const BackOfficePage: React.FC = () => {
         setApprovalDate(null);
 
         try {
-            // 1. Elegibilidad
             const eligibilityResponse = await fetch('/api/requestAdvanceEligibility', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -123,30 +110,39 @@ const BackOfficePage: React.FC = () => {
                     requestedAmount: Number(riskInput.requestedAmount),
                 }),
             });
-            const eligibilityData: AdvanceEligibilityResult =
-                await eligibilityResponse.json();
-            if (!eligibilityResponse.ok)
-                throw new Error(
-                    eligibilityData.decisionReason || 'Error fetching eligibility',
-                );
+            const eligibilityData: AdvanceEligibilityResult = await eligibilityResponse.json();
+            if (!eligibilityResponse.ok) {
+                throw new Error(eligibilityData.decisionReason || 'Error fetching eligibility');
+            }
 
-            // 2. Snapshot
-            const snapshotResponse = await fetch('/api/getMerchantSnapshot', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    merchantId: riskInput.merchantId,
-                    storeId: riskInput.storeId,
+            const basePayload = {
+                merchantId: riskInput.merchantId,
+                storeId: riskInput.storeId,
+            };
+
+            const [snapshotResponse, reputationResponse] = await Promise.all([
+                fetch('/api/getMerchantSnapshot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(basePayload),
                 }),
-            });
-            const snapshot: MerchantSalesSnapshot = await snapshotResponse.json();
-            if (!snapshotResponse.ok)
-                throw new Error('Could not retrieve snapshot data');
+                fetch('/api/getMerchantReputation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(basePayload),
+                }),
+            ]);
 
-            // 3. Combinar resultados
+            const snapshot: MerchantSalesSnapshot = await snapshotResponse.json();
+            if (!snapshotResponse.ok) throw new Error('Could not retrieve snapshot data');
+
+            const reputation: MerchantReputationProfile = await reputationResponse.json();
+            if (!reputationResponse.ok) throw new Error('Could not retrieve reputation data');
+
             setFullRiskResult({
                 ...eligibilityData,
                 snapshot,
+                reputation,
             });
 
             if (eligibilityData.isEligible) {
@@ -164,7 +160,6 @@ const BackOfficePage: React.FC = () => {
         if (!fullRiskResult) return;
 
         const humanAmount = Number(humanAuthorizedAmount);
-
         const systemCap = Math.min(
             fullRiskResult.approvedAmount,
             fullRiskResult.riskProfile.maxAdvanceLimit,
@@ -177,10 +172,7 @@ const BackOfficePage: React.FC = () => {
 
         if (humanAmount > systemCap) {
             setApprovalError(
-                `ERROR: No se puede autorizar más del monto recomendado por el sistema (USD ${systemCap.toLocaleString(
-                    'en-US',
-                    { minimumFractionDigits: 2 },
-                )}).`,
+                `ERROR: No se puede autorizar más del monto recomendado por el sistema (USD ${systemCap.toLocaleString('en-US', { minimumFractionDigits: 2 })}).`,
             );
             setIsApproved(false);
             setApprovalDate(null);
@@ -205,8 +197,8 @@ const BackOfficePage: React.FC = () => {
         });
     };
 
-    // Para leer campos opcionales del snapshot sin pelear con tipos
     const merchantSnapshot: any = fullRiskResult?.snapshot || {};
+    const merchantReputation = fullRiskResult?.reputation || null;
 
     return (
         <div
@@ -224,7 +216,6 @@ const BackOfficePage: React.FC = () => {
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
             </Head>
 
-            {/* HEADER (no se imprime) - Clean Layout */}
             <div
                 className="no-print"
                 style={{
@@ -239,11 +230,7 @@ const BackOfficePage: React.FC = () => {
             >
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <img
-                            src="/logo-azul.png"
-                            alt="Qabum™"
-                            style={{ height: '40px', display: 'block' }}
-                        />
+                        <img src="/logo-azul.png" alt="Qabum™" style={{ height: '40px', display: 'block' }} />
                         <h2
                             style={{
                                 color: PRIMARY_BLUE,
@@ -255,7 +242,6 @@ const BackOfficePage: React.FC = () => {
                             Qabum™ Working Capital Advance Eligibility
                         </h2>
                     </div>
-                    {/* Subtitle restored below title */}
                     <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#666', lineHeight: 1.4 }}>
                         <strong>EN:</strong> Internal backoffice module for eligibility & decisioning<br />
                         <strong>ES:</strong> Backoffice interno para elegibilidad y decisiones de adelantos.
@@ -315,7 +301,6 @@ const BackOfficePage: React.FC = () => {
                 </div>
             </div>
 
-            {/* MAIN CONTAINER */}
             <div
                 className="main-container"
                 style={{
@@ -324,11 +309,8 @@ const BackOfficePage: React.FC = () => {
                     padding: '0 16px',
                 }}
             >
-                {/* INPUT TAB */}
                 {activeTab === 'input' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-
-                        {/* Cards Section */}
                         <div className="cards-container">
                             <style jsx>{`
                                 .cards-container {
@@ -408,7 +390,6 @@ const BackOfficePage: React.FC = () => {
                                 }
                             `}</style>
 
-                            {/* ASSESSMENT CARD */}
                             <div className="card">
                                 <h3 className="card-title">
                                     Working Capital Advance Assessment / Evaluación de Adelanto de Capital
@@ -452,7 +433,6 @@ const BackOfficePage: React.FC = () => {
                                     </div>
                                 )}
 
-                                {/* Merchant Context Block */}
                                 {fullRiskResult && (
                                     <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #f0f0f0' }}>
                                         <h4 style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 'bold', marginBottom: '12px', color: '#888' }}>
@@ -475,16 +455,21 @@ const BackOfficePage: React.FC = () => {
                                                         : 'N/A'}
                                                 </span>
                                             </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #eee', paddingBottom: '4px' }}>
                                                 <span>Months Active:</span>
                                                 <span style={{ fontWeight: 600 }}>{merchantSnapshot.monthsActive ?? 'N/A'}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span>Reputation:</span>
+                                                <span style={{ fontWeight: 700, color: PRIMARY_BLUE }}>
+                                                    {merchantReputation ? `${merchantReputation.repTier} · ${merchantReputation.repScore}/100` : 'N/A'}
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
                                 )}
                             </div>
 
-                            {/* TRANSACTION CORE CARD */}
                             <div className="card">
                                 <h3 className="card-title">
                                     Transaction Core (Split & Ethical Cap) / Núcleo de Transacción (Split y Tope Ético)
@@ -497,22 +482,12 @@ const BackOfficePage: React.FC = () => {
                                 <form onSubmit={handleSplitSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                                     <div>
                                         <label>Merchant ID / ID de Comercio</label>
-                                        <input
-                                            type="text"
-                                            name="merchantId"
-                                            value={splitInput.merchantId}
-                                            onChange={handleSplitChange}
-                                        />
+                                        <input type="text" name="merchantId" value={splitInput.merchantId} onChange={handleSplitChange} />
                                     </div>
 
                                     <div>
                                         <label>Transaction Amount (USD)</label>
-                                        <input
-                                            type="number"
-                                            name="transactionAmount"
-                                            value={splitInput.transactionAmount}
-                                            onChange={handleSplitChange}
-                                        />
+                                        <input type="number" name="transactionAmount" value={splitInput.transactionAmount} onChange={handleSplitChange} />
                                     </div>
 
                                     <button type="submit" className="action-btn" disabled={splitLoading} style={{ marginTop: 'auto' }}>
@@ -533,16 +508,7 @@ const BackOfficePage: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Explanatory Text Section */}
-                        <div style={{
-                            maxWidth: '960px',
-                            margin: '0 auto',
-                            backgroundColor: 'white',
-                            padding: '24px 32px',
-                            borderRadius: '10px',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                            border: '1px solid #f0f0f0'
-                        }}>
+                        <div style={{ maxWidth: '960px', margin: '0 auto', backgroundColor: 'white', padding: '24px 32px', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', border: '1px solid #f0f0f0' }}>
                             <p style={{ marginBottom: '12px', fontSize: '14px', lineHeight: '1.6', color: '#555' }}>
                                 <strong>EN:</strong> Internal backoffice module to simulate and document ethical working-capital flows inside a closed digital ecosystem. Eligibility, suggested amounts and expected settlement horizon are determined using only the merchant’s historical digital sales and behavioural / reputational signals within Qabum™. The working-capital amount is gradually settled through a small share of future transactions on the platform, under a sector-specific ethical take-rate cap that ensures the total percentage deducted from each sale never exceeds the limit defined for that type of business.
                             </p>
@@ -551,22 +517,12 @@ const BackOfficePage: React.FC = () => {
                             </p>
                         </div>
 
-                        {/* Footer (Main Page) */}
                         <div style={{ textAlign: 'center' }}>
                             <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>
                                 Internal Use Only / Solo para uso interno
                             </div>
                             <div style={{ marginBottom: '16px', fontSize: '12px' }}>
-                                <a
-                                    href="https://qabum.com"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{
-                                        color: PRIMARY_BLUE,
-                                        fontWeight: 'bold',
-                                        textDecoration: 'none',
-                                    }}
-                                >
+                                <a href="https://qabum.com" target="_blank" rel="noopener noreferrer" style={{ color: PRIMARY_BLUE, fontWeight: 'bold', textDecoration: 'none' }}>
                                     Powered by Qabum™
                                 </a>
                             </div>
@@ -574,634 +530,313 @@ const BackOfficePage: React.FC = () => {
                     </div>
                 )}
 
-
-                {/* REPORT TAB */}
-                {activeTab === 'report' &&
-                    fullRiskResult &&
-                    fullRiskResult.riskProfile &&
-                    fullRiskResult.snapshot && (
-                        <div style={{ display: 'flex', justifyContent: 'center' }}>
+                {activeTab === 'report' && fullRiskResult && fullRiskResult.riskProfile && fullRiskResult.snapshot && (
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                        <div
+                            className="a4-page"
+                            style={{
+                                width: A4_WIDTH,
+                                minHeight: '297mm',
+                                backgroundColor: 'white',
+                                padding: '40px',
+                                boxShadow: '0 0 15px rgba(0,0,0,0.1)',
+                                position: 'relative',
+                                color: '#333',
+                            }}
+                        >
                             <div
-                                className="a4-page"
                                 style={{
-                                    width: A4_WIDTH,
-                                    minHeight: '297mm', // Only for screen, overridden in print
-                                    backgroundColor: 'white',
-                                    padding: '40px', // Restored professional padding
-                                    boxShadow: '0 0 15px rgba(0,0,0,0.1)',
-                                    position: 'relative',
-                                    color: '#333',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    borderBottom: '2px solid #ccc',
+                                    paddingBottom: 20,
+                                    marginBottom: 25,
                                 }}
                             >
-                                {/* Header PDF */}
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        borderBottom: '2px solid #ccc',
-                                        paddingBottom: 20,
-                                        marginBottom: 25, // Balanced margin
-                                    }}
-                                >
-                                    <img
-                                        src="/logo-azul.png"
-                                        alt="Qabum™"
-                                        style={{ height: '48px' }}
-                                    />
-                                    <div style={{ textAlign: 'right' }}>
-                                        <h1
-                                            style={{
-                                                margin: 0,
-                                                fontSize: '24px',
-                                                color: PRIMARY_BLUE,
-                                            }}
-                                        >
-                                            Working Capital Advance Eligibility Report
-                                        </h1>
-                                        <p
-                                            style={{ margin: 0, fontSize: '12px', color: '#666' }}
-                                        >
-                                            Internal analysis for Qabum™ Working Capital.
-                                        </p>
-                                        <p style={{ margin: 0, fontSize: '12px', color: '#666' }}>
-                                            Generado: {generatedAt.toLocaleString()}
-                                        </p>
-                                        <p style={{ margin: 0, fontSize: '12px', color: '#666' }}>
-                                            Ref: {refId}
-                                        </p>
-                                    </div>
+                                <img src="/logo-azul.png" alt="Qabum™" style={{ height: '48px' }} />
+                                <div style={{ textAlign: 'right' }}>
+                                    <h1 style={{ margin: 0, fontSize: '24px', color: PRIMARY_BLUE }}>
+                                        Working Capital Advance Eligibility Report
+                                    </h1>
+                                    <p style={{ margin: 0, fontSize: '12px', color: '#666' }}>
+                                        Internal analysis for Qabum™ Working Capital.
+                                    </p>
+                                    <p style={{ margin: 0, fontSize: '12px', color: '#666' }}>
+                                        Generado: {generatedAt.toLocaleString()}
+                                    </p>
+                                    <p style={{ margin: 0, fontSize: '12px', color: '#666' }}>
+                                        Ref: {refId}
+                                    </p>
                                 </div>
+                            </div>
 
-                                {/* 1. Merchant Profile */}
-                                <div style={{ marginBottom: '22px' }}>
-                                    <h3
-                                        style={{
-                                            fontSize: '13px',
-                                            textTransform: 'uppercase',
-                                            borderBottom: '1px solid #eee',
-                                            paddingBottom: '6px',
-                                            marginTop: 0,
-                                            marginBottom: '10px',
-                                        }}
-                                    >
-                                        1. Merchant Working Capital Profile /
-                                        Perfil de capital de trabajo del comercio
-                                    </h3>
-                                    <div
-                                        style={{
-                                            display: 'grid',
-                                            gridTemplateColumns: '1fr 1fr',
-                                            gap: '12px',
-                                            fontSize: '13px',
-                                        }}
-                                    >
-                                        <div>
-                                            <strong>Merchant ID:</strong> {fullRiskResult.merchantId}
-                                        </div>
-                                        <div>
-                                            <strong>Store ID:</strong> {fullRiskResult.storeId}
-                                        </div>
-                                        <div>
-                                            <strong>Commercial Name / Nombre comercial:</strong>{' '}
-                                            {merchantSnapshot.merchantName || 'N/A'}
-                                        </div>
-                                        <div>
-                                            <strong>Sector / Sector:</strong>{' '}
-                                            {fullRiskResult.merchantSectorUsed || merchantSnapshot.sector || 'N/A'}
-                                        </div>
-                                        <div>
-                                            <strong>Joined Qabum™ / Fecha de ingreso:</strong>{' '}
-                                            {merchantSnapshot.onboardDate || 'N/A'}
-                                        </div>
-                                    </div>
+                            <div style={{ marginBottom: '22px' }}>
+                                <h3 style={{ fontSize: '13px', textTransform: 'uppercase', borderBottom: '1px solid #eee', paddingBottom: '6px', marginTop: 0, marginBottom: '10px' }}>
+                                    1. Merchant Working Capital Profile / Perfil de capital de trabajo del comercio
+                                </h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
+                                    <div><strong>Merchant ID:</strong> {fullRiskResult.merchantId}</div>
+                                    <div><strong>Store ID:</strong> {fullRiskResult.storeId}</div>
+                                    <div><strong>Commercial Name / Nombre comercial:</strong> {merchantSnapshot.merchantName || 'N/A'}</div>
+                                    <div><strong>Sector / Sector:</strong> {fullRiskResult.merchantSectorUsed || merchantSnapshot.sector || 'N/A'}</div>
+                                    <div><strong>Joined Qabum™ / Fecha de ingreso:</strong> {merchantSnapshot.onboardDate || 'N/A'}</div>
                                 </div>
+                            </div>
 
-                                {/* 2. Historical Performance */}
-                                <div style={{ marginBottom: '22px' }}>
-                                    <h3
-                                        style={{
-                                            fontSize: '13px',
-                                            textTransform: 'uppercase',
-                                            borderBottom: '1px solid #eee',
-                                            paddingBottom: '6px',
-                                            marginTop: 0,
-                                            marginBottom: '10px',
-                                        }}
-                                    >
-                                        2. Historical Performance & Evidence (Sales Data) /
-                                        Desempeño histórico y evidencia (datos de ventas)
-                                    </h3>
-                                    <table
-                                        style={{
-                                            width: '100%',
-                                            borderCollapse: 'collapse',
-                                            fontSize: '13px',
-                                        }}
-                                    >
+                            <div style={{ marginBottom: '22px' }}>
+                                <h3 style={{ fontSize: '13px', textTransform: 'uppercase', borderBottom: '1px solid #eee', paddingBottom: '6px', marginTop: 0, marginBottom: '10px' }}>
+                                    2. Historical Performance & Evidence (Sales Data) / Desempeño histórico y evidencia (datos de ventas)
+                                </h3>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                                    <tbody>
+                                        <tr>
+                                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>
+                                                Average Monthly Volume (last 12 months) / Volumen promedio mensual (últimos 12 meses)
+                                            </td>
+                                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', textAlign: 'right', fontWeight: 'bold' }}>
+                                                {merchantSnapshot.averageMonthlyVolume
+                                                    ? merchantSnapshot.averageMonthlyVolume.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+                                                    : 'N/A'}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>
+                                                Months Active on Platform / Meses activo en la plataforma
+                                            </td>
+                                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', textAlign: 'right' }}>
+                                                {merchantSnapshot.monthsActive ?? 'N/A'}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div style={{ marginBottom: '22px' }}>
+                                <h3 style={{ fontSize: '13px', textTransform: 'uppercase', borderBottom: '1px solid #eee', paddingBottom: '6px', marginTop: 0, marginBottom: '10px' }}>
+                                    3. Merchant Reputation Layer / Capa reputacional del comercio
+                                </h3>
+                                <div style={{ backgroundColor: '#f9f9f9', padding: '12px 16px', borderRadius: '4px', fontSize: '13px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                                         <tbody>
                                             <tr>
-                                                <td
-                                                    style={{
-                                                        padding: '6px 8px',
-                                                        borderBottom: '1px solid #eee',
-                                                    }}
-                                                >
-                                                    Average Monthly Volume (last 12 months) /
-                                                    Volumen promedio mensual (últimos 12 meses)
-                                                </td>
-                                                <td
-                                                    style={{
-                                                        padding: '6px 8px',
-                                                        borderBottom: '1px solid #eee',
-                                                        textAlign: 'right',
-                                                        fontWeight: 'bold',
-                                                    }}
-                                                >
-                                                    {merchantSnapshot.averageMonthlyVolume
-                                                        ? merchantSnapshot.averageMonthlyVolume.toLocaleString('en-US', {
-                                                            style: 'currency',
-                                                            currency: 'USD',
-                                                        })
-                                                        : 'N/A'}
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee' }}>Reputation Tier / Nivel reputacional</td>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee', textAlign: 'right', fontWeight: 'bold' }}>
+                                                    {merchantReputation?.repTier || 'N/A'}
                                                 </td>
                                             </tr>
                                             <tr>
-                                                <td
-                                                    style={{
-                                                        padding: '6px 8px',
-                                                        borderBottom: '1px solid #eee',
-                                                    }}
-                                                >
-                                                    Months Active on Platform /
-                                                    Meses activo en la plataforma
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee' }}>Reputation Score / Puntaje reputacional</td>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee', textAlign: 'right', fontWeight: 'bold' }}>
+                                                    {merchantReputation ? `${merchantReputation.repScore}/100` : 'N/A'}
                                                 </td>
-                                                <td
-                                                    style={{
-                                                        padding: '6px 8px',
-                                                        borderBottom: '1px solid #eee',
-                                                        textAlign: 'right',
-                                                    }}
-                                                >
-                                                    {merchantSnapshot.monthsActive ?? 'N/A'}
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    {merchantReputation?.reasonDetails?.length ? (
+                                        <div style={{ marginTop: 10 }}>
+                                            <p style={{ margin: '0 0 6px 0', fontWeight: 'bold' }}>Top Reasons / Razones principales</p>
+                                            <ul style={{ margin: 0, paddingLeft: '18px' }}>
+                                                {merchantReputation.reasonDetails.slice(0, 3).map((reason) => (
+                                                    <li key={reason.code} style={{ marginBottom: '6px' }}>
+                                                        <strong>EN:</strong> {reason.en}<br />
+                                                        <strong>ES:</strong> {reason.es}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </div>
+
+                            <div style={{ marginBottom: '22px' }}>
+                                <h3 style={{ fontSize: '13px', borderBottom: '1px solid #eee', paddingBottom: '6px', marginTop: 0, marginBottom: '10px' }}>
+                                    4. Qabum™ Core Analysis (Split & Risk Recommendation)
+                                </h3>
+                                <div style={{ backgroundColor: '#f9f9f9', padding: '12px 16px', borderRadius: '4px', fontSize: '13px' }}>
+                                    <p style={{ margin: '0 0 8px 0' }}>
+                                        <strong>System Decision / Decisión del sistema:</strong> {fullRiskResult.isEligible ? 'ELIGIBLE' : 'NOT ELIGIBLE'} / {fullRiskResult.isEligible ? ' ELEGIBLE' : ' NO ELEGIBLE'}
+                                    </p>
+                                    <p style={{ margin: 0 }}>
+                                        <strong>Reason / Razón:</strong> {fullRiskResult.decisionReason}
+                                    </p>
+
+                                    <table style={{ width: '100%', marginTop: 10, borderCollapse: 'collapse', fontSize: '13px' }}>
+                                        <tbody>
+                                            <tr>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee' }}>Suggested Max Advance Limit / Límite máximo sugerido</td>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee', textAlign: 'right', fontWeight: 'bold' }}>
+                                                    USD {fullRiskResult.riskProfile.maxAdvanceLimit.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee' }}>Recommended Repayment Share of Sales / Porcentaje recomendado de repago</td>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee', textAlign: 'right' }}>
+                                                    {(fullRiskResult.riskProfile.recommendedRepaymentRate * 100).toFixed(2)}%
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee' }}>Internal Loss Provision Rate / Tasa interna de provisión de pérdida</td>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee', textAlign: 'right' }}>
+                                                    {(fullRiskResult.riskProfile.lossProvisionRate * 100).toFixed(2)}%
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee' }}>Ethical Cap Used / Tope Ético aplicado</td>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee', textAlign: 'right' }}>
+                                                    {fullRiskResult.ethicalCapUsed ? (fullRiskResult.ethicalCapUsed * 100).toFixed(3) : 'N/A'}%
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style={{ padding: 5 }}>Effective Take Rate (Store cap) / Take rate efectivo (tope del comercio)</td>
+                                                <td style={{ padding: 5, textAlign: 'right' }}>
+                                                    {fullRiskResult.ethicalCapUsed ? (fullRiskResult.ethicalCapUsed * 100).toFixed(2) : (TAKE_RATE_CAP_STORE * 100).toFixed(2)}%
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee' }}>Estimated Payback Period (months) / Periodo estimado de repago (meses)</td>
+                                                <td style={{ padding: 5, borderBottom: '1px solid #eee', textAlign: 'right', fontWeight: 'bold' }}>
+                                                    {fullRiskResult.estimatedPaybackMonths != null ? fullRiskResult.estimatedPaybackMonths.toFixed(1) : 'Not available / No disponible'}
                                                 </td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
-
-                                {/* 3. Qabum Core Analysis */}
-                                <div style={{ marginBottom: '22px' }}>
-                                    <h3
-                                        style={{
-                                            fontSize: '13px',
-                                            borderBottom: '1px solid #eee',
-                                            paddingBottom: '6px',
-                                            marginTop: 0,
-                                            marginBottom: '10px',
-                                        }}
-                                    >
-                                        3. Qabum™ Core Analysis (Split & Risk Recommendation)
-                                    </h3>
-                                    <div
-                                        style={{
-                                            backgroundColor: '#f9f9f9',
-                                            padding: '12px 16px',
-                                            borderRadius: '4px',
-                                            fontSize: '13px',
-                                        }}
-                                    >
-                                        <p style={{ margin: '0 0 8px 0' }}>
-                                            <strong>System Decision / Decisión del sistema:</strong>{' '}
-                                            {fullRiskResult.isEligible ? 'ELIGIBLE' : 'NOT ELIGIBLE'} /
-                                            {fullRiskResult.isEligible ? ' ELEGIBLE' : ' NO ELEGIBLE'}
-                                        </p>
-                                        <p style={{ margin: 0 }}>
-                                            <strong>Reason / Razón:</strong>{' '}
-                                            {fullRiskResult.decisionReason}
-                                        </p>
-
-                                        <table
-                                            style={{
-                                                width: '100%',
-                                                marginTop: 10,
-                                                borderCollapse: 'collapse',
-                                                fontSize: '13px',
-                                            }}
-                                        >
-                                            <tbody>
-                                                <tr>
-                                                    <td
-                                                        style={{
-                                                            padding: 5,
-                                                            borderBottom: '1px solid #eee',
-                                                        }}
-                                                    >
-                                                        Suggested Max Advance Limit /
-                                                        Límite máximo sugerido
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            padding: 5,
-                                                            borderBottom: '1px solid #eee',
-                                                            textAlign: 'right',
-                                                            fontWeight: 'bold',
-                                                        }}
-                                                    >
-                                                        USD{' '}
-                                                        {fullRiskResult.riskProfile.maxAdvanceLimit.toLocaleString(
-                                                            'en-US',
-                                                            { minimumFractionDigits: 2 },
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td
-                                                        style={{
-                                                            padding: 5,
-                                                            borderBottom: '1px solid #eee',
-                                                        }}
-                                                    >
-                                                        Recommended Repayment Share of Sales /
-                                                        Porcentaje recomendado de repago
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            padding: 5,
-                                                            borderBottom: '1px solid #eee',
-                                                            textAlign: 'right',
-                                                        }}
-                                                    >
-                                                        {(
-                                                            fullRiskResult.riskProfile.recommendedRepaymentRate *
-                                                            100
-                                                        ).toFixed(2)}
-                                                        %
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td
-                                                        style={{
-                                                            padding: 5,
-                                                            borderBottom: '1px solid #eee',
-                                                        }}
-                                                    >
-                                                        Internal Loss Provision Rate /
-                                                        Tasa interna de provisión de pérdida
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            padding: 5,
-                                                            borderBottom: '1px solid #eee',
-                                                            textAlign: 'right',
-                                                        }}
-                                                    >
-                                                        {(
-                                                            fullRiskResult.riskProfile.lossProvisionRate * 100
-                                                        ).toFixed(2)}
-                                                        %
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td
-                                                        style={{
-                                                            padding: 5,
-                                                            borderBottom: '1px solid #eee',
-                                                        }}
-                                                    >
-                                                        Ethical Cap Used /
-                                                        Tope Ético aplicado
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            padding: 5,
-                                                            borderBottom: '1px solid #eee',
-                                                            textAlign: 'right',
-                                                        }}
-                                                    >
-                                                        {fullRiskResult.ethicalCapUsed
-                                                            ? (fullRiskResult.ethicalCapUsed * 100).toFixed(3)
-                                                            : 'N/A'}%
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td style={{ padding: 5 }}>
-                                                        Effective Take Rate (Store cap) /
-                                                        Take rate efectivo (tope del comercio)
-                                                    </td>
-                                                    <td style={{ padding: 5, textAlign: 'right' }}>
-                                                        {fullRiskResult.ethicalCapUsed
-                                                            ? (fullRiskResult.ethicalCapUsed * 100).toFixed(2)
-                                                            : (TAKE_RATE_CAP_STORE * 100).toFixed(2)}%
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td
-                                                        style={{
-                                                            padding: 5,
-                                                            borderBottom: '1px solid #eee',
-                                                        }}
-                                                    >
-                                                        Estimated Payback Period (months) /
-                                                        Periodo estimado de repago (meses)
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            padding: 5,
-                                                            borderBottom: '1px solid #eee',
-                                                            textAlign: 'right',
-                                                            fontWeight: 'bold',
-                                                        }}
-                                                    >
-                                                        {fullRiskResult.estimatedPaybackMonths != null
-                                                            ? fullRiskResult.estimatedPaybackMonths.toFixed(1)
-                                                            : 'Not available / No disponible'}
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-
-                                {/* Human approval */}
-                                <div
-                                    style={{
-                                        marginBottom: '25px', // More space before footer
-                                        border: '2px solid #333',
-                                        borderRadius: 4,
-                                        padding: 16, // Comfortable padding
-                                    }}
-                                >
-                                    <h3
-                                        style={{
-                                            fontSize: '13px',
-                                            textTransform: 'uppercase',
-                                            marginBottom: 10,
-                                            marginTop: 0,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                        }}
-                                    >
-                                        4. Final Human Authorization /
-                                        Autorización humana final
-                                        {isApproved && (
-                                            <span
-                                                style={{
-                                                    marginLeft: 8,
-                                                    fontSize: 12,
-                                                    color: 'green',
-                                                }}
-                                            >
-                                                ✅ AUTHORIZED
-                                            </span>
-                                        )}
-                                    </h3>
-
-                                    <div className="no-print" style={{ marginBottom: 12 }}>
-                                        <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px 0' }}>
-                                            Review the limit suggested by the system. Human decision
-                                            cannot exceed it.
-                                        </p>
-                                        <div
-                                            style={{
-                                                display: 'flex',
-                                                gap: 12,
-                                                alignItems: 'flex-end',
-                                            }}
-                                        >
-                                            <div>
-                                                <label
-                                                    style={{
-                                                        display: 'block',
-                                                        fontSize: 11,
-                                                        fontWeight: 'bold',
-                                                        marginBottom: 4,
-                                                    }}
-                                                >
-                                                    Authorized Capital Amount (USD)
-                                                </label>
-                                                <input
-                                                    type="number"
-                                                    value={humanAuthorizedAmount}
-                                                    onChange={(e) => {
-                                                        setHumanAuthorizedAmount(e.target.value);
-                                                        setIsApproved(false);
-                                                        setApprovalError(null);
-                                                        setApprovalDate(null);
-                                                    }}
-                                                    style={{
-                                                        padding: 6,
-                                                        width: 150,
-                                                        border: approvalError
-                                                            ? '1px solid red'
-                                                            : '1px solid #ccc',
-                                                        fontSize: '13px',
-                                                    }}
-                                                />
-                                            </div>
-                                            <button
-                                                onClick={handleAuthorize}
-                                                disabled={!fullRiskResult.isEligible}
-                                                style={{
-                                                    padding: '8px 16px',
-                                                    backgroundColor: PRIMARY_BLUE,
-                                                    color: 'white',
-                                                    border: 'none',
-                                                    cursor: fullRiskResult.isEligible
-                                                        ? 'pointer'
-                                                        : 'not-allowed',
-                                                    opacity: fullRiskResult.isEligible ? 1 : 0.5,
-                                                    fontSize: '12px',
-                                                    fontWeight: 'bold',
-                                                }}
-                                            >
-                                                AUTHORIZE & SIGN
-                                            </button>
-                                        </div>
-                                        {approvalError && (
-                                            <p
-                                                style={{
-                                                    color: 'red',
-                                                    fontSize: 11,
-                                                    marginTop: 4,
-                                                }}
-                                            >
-                                                {approvalError}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    <div
-                                        style={{
-                                            display: 'grid',
-                                            gridTemplateColumns: '1fr 1fr',
-                                            gap: 20,
-                                            marginTop: 8,
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                borderTop: '1px solid #ccc',
-                                                paddingTop: 6,
-                                            }}
-                                        >
-                                            <p
-                                                style={{
-                                                    fontSize: 11,
-                                                    margin: '0 0 4px 0',
-                                                    color: '#555',
-                                                }}
-                                            >
-                                                Final Authorized Amount /
-                                                Monto final autorizado:
-                                            </p>
-                                            <p
-                                                style={{
-                                                    fontSize: 18,
-                                                    fontWeight: 'bold',
-                                                    margin: 0,
-                                                }}
-                                            >
-                                                {isApproved
-                                                    ? `USD ${Number(
-                                                        humanAuthorizedAmount,
-                                                    ).toLocaleString('en-US', {
-                                                        minimumFractionDigits: 2,
-                                                    })}`
-                                                    : '---'}
-                                            </p>
-                                        </div>
-                                        <div
-                                            style={{
-                                                borderTop: '1px solid #ccc',
-                                                paddingTop: 6,
-                                            }}
-                                        >
-                                            <p
-                                                style={{
-                                                    fontSize: 11,
-                                                    margin: '0 0 4px 0',
-                                                    color: '#555',
-                                                }}
-                                            >
-                                                Authorization Date /
-                                                Fecha de autorización:
-                                            </p>
-                                            <p style={{ fontSize: 14, margin: 0 }}>
-                                                {isApproved ? approvalDate : '---'}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Powered by Qabum Footer */}
-                                <div
-                                    style={{
-                                        marginTop: '16px',
-                                        marginBottom: '6px',
-                                        textAlign: 'center',
-                                    }}
-                                >
-                                    <a
-                                        href="https://qabum.com"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        style={{
-                                            color: PRIMARY_BLUE,
-                                            fontWeight: 'bold',
-                                            textDecoration: 'none',
-                                            fontSize: '11px',
-                                        }}
-                                    >
-                                        Powered by Qabum™
-                                    </a>
-                                </div>
-
-                                {/* Footer legal */}
-                                <div
-                                    style={{
-                                        fontSize: 9,
-                                        color: '#999',
-                                        textAlign: 'center',
-                                        borderTop: '1px solid #eee',
-                                        paddingTop: 8,
-                                        marginTop: 8,
-                                    }}
-                                >
-                                    <p style={{ marginBottom: 4, lineHeight: 1.3 }}>
-                                        <strong>English:</strong> This is an internal analysis of
-                                        Working Capital Advance in a closed digital ecosystem based on
-                                        future sales. It is not a consumer loan and does not use
-                                        interest or fees. The final legal classification depends on
-                                        local regulation and must be defined in specific contracts by
-                                        jurisdiction. Qabum™ is a technology and service layer, not a
-                                        financial institution. All activity occurs under private
-                                        agreements within its closed platform.
-                                    </p>
-                                    <p style={{ margin: 0, lineHeight: 1.3 }}>
-                                        <strong>Español:</strong> Este es un análisis interno de
-                                        Working Capital Advance en un ecosistema digital cerrado basado
-                                        en futuras ventas. No es un préstamo de consumo y no utiliza
-                                        intereses ni cuotas. La clasificación legal final depende de la
-                                        regulación local y debe definirse en contratos específicos por
-                                        jurisdicción. Qabum™ es una capa de tecnología y servicio, no
-                                        una institución financiera. Toda la actividad ocurre bajo
-                                        acuerdos privados dentro de su plataforma cerrada.
-                                    </p>
-                                </div>
-
-                                <style>{`
-                                    @media print {
-                                        @page { 
-                                            size: A4; 
-                                            margin: 0; 
-                                        }
-                                        
-                                        html, body {
-                                            /* FORCE the document to be exactly one A4 page tall to cut off ghost content */
-                                            height: 297mm !important;
-                                            width: 210mm !important;
-                                            overflow: hidden !important; /* Clip anything else */
-                                            background-color: white !important;
-                                            margin: 0 !important;
-                                            padding: 0 !important;
-                                        }
-
-                                        /* Hide everything by default (paint only) */
-                                        body * { 
-                                            visibility: hidden; 
-                                        }
-                                        
-                                        /* Show only our report */
-                                        .a4-page, .a4-page * { 
-                                            visibility: visible !important;
-                                            color-adjust: exact;
-                                            -webkit-print-color-adjust: exact;
-                                        }
-                                        
-                                        .a4-page {
-                                            position: absolute;
-                                            left: 0;
-                                            top: 0;
-                                            width: 210mm !important;
-                                            /* Allow height to flow naturally but practically limited by body clipping if it exceeds */
-                                            height: auto !important; 
-                                            min-height: auto !important;
-                                            margin: 0 !important;
-                                            padding: 40px !important;
-                                            background-color: white !important;
-                                            box-shadow: none !important;
-                                            z-index: 9999;
-                                        }
-                                        
-                                        .no-print { 
-                                            display: none !important; 
-                                        }
-                                    }
-                                `}</style>
                             </div>
-                        </div>
-                    )}
 
+                            <div style={{ marginBottom: '25px', border: '2px solid #333', borderRadius: 4, padding: 16 }}>
+                                <h3 style={{ fontSize: '13px', textTransform: 'uppercase', marginBottom: 10, marginTop: 0, display: 'flex', alignItems: 'center' }}>
+                                    5. Final Human Authorization / Autorización humana final
+                                    {isApproved && (
+                                        <span style={{ marginLeft: 8, fontSize: 12, color: 'green' }}>
+                                            ✅ AUTHORIZED
+                                        </span>
+                                    )}
+                                </h3>
+
+                                <div className="no-print" style={{ marginBottom: 12 }}>
+                                    <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px 0' }}>
+                                        Review the limit suggested by the system. Human decision cannot exceed it.
+                                    </p>
+                                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: 11, fontWeight: 'bold', marginBottom: 4 }}>
+                                                Authorized Capital Amount (USD)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                value={humanAuthorizedAmount}
+                                                onChange={(e) => {
+                                                    setHumanAuthorizedAmount(e.target.value);
+                                                    setIsApproved(false);
+                                                    setApprovalError(null);
+                                                    setApprovalDate(null);
+                                                }}
+                                                style={{ padding: 6, width: 150, border: approvalError ? '1px solid red' : '1px solid #ccc', fontSize: '13px' }}
+                                            />
+                                        </div>
+                                        <button
+                                            onClick={handleAuthorize}
+                                            disabled={!fullRiskResult.isEligible}
+                                            style={{
+                                                padding: '8px 16px',
+                                                backgroundColor: PRIMARY_BLUE,
+                                                color: 'white',
+                                                border: 'none',
+                                                cursor: fullRiskResult.isEligible ? 'pointer' : 'not-allowed',
+                                                opacity: fullRiskResult.isEligible ? 1 : 0.5,
+                                                fontSize: '12px',
+                                                fontWeight: 'bold',
+                                            }}
+                                        >
+                                            AUTHORIZE & SIGN
+                                        </button>
+                                    </div>
+                                    {approvalError && (
+                                        <p style={{ color: 'red', fontSize: 11, marginTop: 4 }}>{approvalError}</p>
+                                    )}
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 8 }}>
+                                    <div style={{ borderTop: '1px solid #ccc', paddingTop: 6 }}>
+                                        <p style={{ fontSize: 11, margin: '0 0 4px 0', color: '#555' }}>
+                                            Final Authorized Amount / Monto final autorizado:
+                                        </p>
+                                        <p style={{ fontSize: 18, fontWeight: 'bold', margin: 0 }}>
+                                            {isApproved ? `USD ${Number(humanAuthorizedAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '---'}
+                                        </p>
+                                    </div>
+                                    <div style={{ borderTop: '1px solid #ccc', paddingTop: 6 }}>
+                                        <p style={{ fontSize: 11, margin: '0 0 4px 0', color: '#555' }}>
+                                            Authorization Date / Fecha de autorización:
+                                        </p>
+                                        <p style={{ fontSize: 14, margin: 0 }}>{isApproved ? approvalDate : '---'}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: '16px', marginBottom: '6px', textAlign: 'center' }}>
+                                <a href="https://qabum.com" target="_blank" rel="noopener noreferrer" style={{ color: PRIMARY_BLUE, fontWeight: 'bold', textDecoration: 'none', fontSize: '11px' }}>
+                                    Powered by Qabum™
+                                </a>
+                            </div>
+
+                            <div style={{ fontSize: 9, color: '#999', textAlign: 'center', borderTop: '1px solid #eee', paddingTop: 8, marginTop: 8 }}>
+                                <p style={{ marginBottom: 4, lineHeight: 1.3 }}>
+                                    <strong>English:</strong> This is an internal analysis of Working Capital Advance in a closed digital ecosystem based on future sales. It is not a consumer loan and does not use interest or fees. The final legal classification depends on local regulation and must be defined in specific contracts by jurisdiction. Qabum™ is a technology and service layer, not a financial institution. All activity occurs under private agreements within its closed platform.
+                                </p>
+                                <p style={{ margin: 0, lineHeight: 1.3 }}>
+                                    <strong>Español:</strong> Este es un análisis interno de Working Capital Advance en un ecosistema digital cerrado basado en futuras ventas. No es un préstamo de consumo y no utiliza intereses ni cuotas. La clasificación legal final depende de la regulación local y debe definirse en contratos específicos por jurisdicción. Qabum™ es una capa de tecnología y servicio, no una institución financiera. Toda la actividad ocurre bajo acuerdos privados dentro de su plataforma cerrada.
+                                </p>
+                            </div>
+
+                            <style>{`
+                                @media print {
+                                    @page {
+                                        size: A4;
+                                        margin: 0;
+                                    }
+
+                                    html, body {
+                                        height: 297mm !important;
+                                        width: 210mm !important;
+                                        overflow: hidden !important;
+                                        background-color: white !important;
+                                        margin: 0 !important;
+                                        padding: 0 !important;
+                                    }
+
+                                    body * {
+                                        visibility: hidden;
+                                    }
+
+                                    .a4-page, .a4-page * {
+                                        visibility: visible !important;
+                                        color-adjust: exact;
+                                        -webkit-print-color-adjust: exact;
+                                    }
+
+                                    .a4-page {
+                                        position: absolute;
+                                        left: 0;
+                                        top: 0;
+                                        width: 210mm !important;
+                                        height: auto !important;
+                                        min-height: auto !important;
+                                        margin: 0 !important;
+                                        padding: 40px !important;
+                                        background-color: white !important;
+                                        box-shadow: none !important;
+                                        z-index: 9999;
+                                    }
+
+                                    .no-print {
+                                        display: none !important;
+                                    }
+                                }
+                            `}</style>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
