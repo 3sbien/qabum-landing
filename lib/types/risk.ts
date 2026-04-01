@@ -19,6 +19,12 @@ export type ReputationReasonCode =
     | 'REPEATED_FAILED_SPLITS'
     | 'RECENT_DROP_PENALTY';
 
+export interface LocalizedReason {
+    code: ReputationReasonCode;
+    en: string;
+    es: string;
+}
+
 export interface MerchantSalesSnapshot {
     merchantId: string;
     storeId: string;
@@ -69,6 +75,7 @@ export interface MerchantReputationProfile {
     repTier: ReputationTier;
     repScore: number;
     reasonCodes: ReputationReasonCode[];
+    reasonDetails: LocalizedReason[];
     scoreBreakdown: ReputationScoreBreakdown;
 }
 

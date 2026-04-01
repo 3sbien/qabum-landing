@@ -1,5 +1,6 @@
 import { getMerchantSalesSnapshot } from './dataService';
 import { REPUTATION_TIER_RULES_V1 } from '../config/reputationRules';
+import { getLocalizedReputationReasons } from '../utils/reputationReasonMessages';
 import {
     MerchantReputationProfile,
     MerchantSalesSnapshot,
@@ -116,6 +117,7 @@ export function deriveMerchantReputationProfile(
         repTier,
         repScore: total,
         reasonCodes,
+        reasonDetails: getLocalizedReputationReasons(reasonCodes),
         scoreBreakdown,
     };
 }
