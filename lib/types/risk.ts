@@ -53,6 +53,16 @@ export interface ReputationScoreBreakdown {
     total: number;
 }
 
+export interface ReputationTierRule {
+    tier: ReputationTier;
+    minScore: number;
+    minMonthsActive: number;
+    minRecentActiveMonths: number;
+    maxFailedSplits: number;
+    requiresNoRecentDrop: boolean;
+    summary: string;
+}
+
 export interface MerchantReputationProfile {
     merchantId: string;
     storeId: string;

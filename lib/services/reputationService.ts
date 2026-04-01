@@ -1,36 +1,30 @@
 import { getMerchantSalesSnapshot } from './dataService';
+import { REPUTATION_TIER_RULES_V1 } from '../config/reputationRules';
 import {
     MerchantReputationProfile,
     MerchantSalesSnapshot,
     ReputationReasonCode,
     ReputationScoreBreakdown,
     ReputationTier,
+    ReputationTierRule,
 } from '../types/risk';
 
 function clampScore(score: number): number {
     return Math.max(0, Math.min(100, Math.round(score)));
 }
 
+function qualifiesForTier(snapshot: MerchantSalesSnapshot, totalScore: number, rule: ReputationTierRule): boolean {
+    if (totalScore < rule.minScore) return false;
+    if (snapshot.monthsActive < rule.minMonthsActive) return false;
+    if (snapshot.recentActiveMonths < rule.minRecentActiveMonths) return false;
+    if (snapshot.failedSplitCount > rule.maxFailedSplits) return false;
+    if (rule.requiresNoRecentDrop && snapshot.hasRecentDrop) return false;
+    return true;
+}
+
 function deriveTier(snapshot: MerchantSalesSnapshot, totalScore: number): ReputationTier {
-    if (
-        totalScore >= 80 &&
-        snapshot.monthsActive >= 12 &&
-        snapshot.recentActiveMonths >= 3 &&
-        snapshot.failedSplitCount <= 1 &&
-        !snapshot.hasRecentDrop
-    ) {
-        return 'REP3';
-    }
-
-    if (
-        totalScore >= 55 &&
-        snapshot.recentActiveMonths >= 2 &&
-        snapshot.failedSplitCount <= 3
-    ) {
-        return 'REP2';
-    }
-
-    return 'REP1';
+    const matchedRule = REPUTATION_TIER_RULES_V1.find((rule) => qualifiesForTier(snapshot, totalScore, rule));
+    return matchedRule?.tier || 'REP1';
 }
 
 export function deriveMerchantReputationProfile(
