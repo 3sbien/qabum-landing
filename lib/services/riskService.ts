@@ -53,7 +53,7 @@ function deriveRiskProfile(snapshot: MerchantSalesSnapshot, config: RiskConfig):
         riskBand = 'LOW';
         maxAdvanceLimit = averageMonthlyVolume * applyCap(1.0); // 100% del volumen (capped globally)
         recommendedRepaymentRate = 0.010; // 1.0%
-        // NOTE: Specific band rates override global default if logic dictates, 
+        // NOTE: Specific band rates override global default if logic dictates,
         // but we must still respect ethical cap (calculated below).
         lossProvisionRate = 0.01; // 1%
         reasonCodes.push('LOW_RISK_PROFILE');
@@ -139,6 +139,9 @@ export async function evaluateAdvanceRequest(params: {
 
     // 2. Obtener Snapshot Raw para verificaciones duras
     const snapshot = await getMerchantSalesSnapshot({ storeId, merchantId });
+    const ethicalCapUsed = getEcUsed(snapshot.sector, config);
+    const engineMarginUsed = Math.min(0.007, config.global.defaultQabumMarginCap);
+
     // 3. Derivar Perfil de Riesgo (calculates limits and clamped rates)
     const profile = deriveRiskProfile(snapshot, config);
 
@@ -166,14 +169,39 @@ export async function evaluateAdvanceRequest(params: {
             approvedAmount: 0,
             riskProfile: {
                 ...profile,
-                maxAdvanceLimit: 0, // Forzar límite a 0
+                maxAdvanceLimit: 0,
             },
             decisionReason: `NO ELEGIBLE: la cuenta tiene ${snapshot.monthsActive} meses (min: ${minAge}), y registro de ventas en ${snapshot.recentActiveMonths} de los últimos periodos requeridos (min: ${minActive}).`,
-            // Audit fields
             riskConfigVersionUsed: config.version,
             riskConfigUpdatedAtUsed: config.updatedAt,
             merchantSectorUsed: snapshot.sector,
-            ethicalCapUsed: getEcUsed(snapshot.sector, config),
+            ethicalCapUsed,
+        };
+    }
+
+    // --- REGLA DE HEADROOM DE REPAGO ---
+    // Si el sistema no puede sostener ni un repayment > 0 dentro del tope ético,
+    // no debe aprobarse ningún adelanto.
+    if (profile.recommendedRepaymentRate <= 0) {
+        const ethicalCapPct = ethicalCapUsed != null ? (ethicalCapUsed * 100).toFixed(3) : 'N/A';
+        const mdrPct = (config.global.defaultMdr * 100).toFixed(3);
+        const marginPct = (engineMarginUsed * 100).toFixed(3);
+
+        return {
+            merchantId,
+            storeId,
+            requestedAmount,
+            isEligible: false,
+            approvedAmount: 0,
+            riskProfile: {
+                ...profile,
+                maxAdvanceLimit: 0,
+            },
+            decisionReason: `NO ELEGIBLE: el tope ético del sector (${ethicalCapPct}%) no deja espacio real de repago después de MDR (${mdrPct}%) y margen Qabum (${marginPct}%). Ajuste la configuración de riesgo antes de aprobar adelantos.`,
+            riskConfigVersionUsed: config.version,
+            riskConfigUpdatedAtUsed: config.updatedAt,
+            merchantSectorUsed: snapshot.sector,
+            ethicalCapUsed,
         };
     }
 
@@ -197,8 +225,8 @@ export async function evaluateAdvanceRequest(params: {
             approvedAmount = 0;
             decisionReason = `Requested: ${fmt(requestedAmount)}. Limit: ${fmt(profile.maxAdvanceLimit)}. Approved: NO (exceeds limit).`;
         }
-    } else { // HIGH Risk
-        // Solo permite el 50% del Max Advance Limit para HIGH risk
+    } else {
+        // HIGH Risk: solo permite el 50% del Max Advance Limit
         const highRiskCap = profile.maxAdvanceLimit * 0.5;
         if (requestedAmount <= highRiskCap) {
             isEligible = true;
@@ -225,18 +253,65 @@ export async function evaluateAdvanceRequest(params: {
         }
     }
 
+    // --- REGLA DE VENTANA DE PAYBACK ---
+    // Si no se puede estimar el repago, o cae fuera de la ventana configurada,
+    // la operación no debe aprobarse.
+    const minPaybackMonths = config.global.minPaybackMonths;
+    const maxPaybackMonths = config.global.maxPaybackMonths;
+
+    if (isEligible) {
+        if (estimatedPaybackMonths == null) {
+            return {
+                merchantId,
+                storeId,
+                requestedAmount,
+                isEligible: false,
+                approvedAmount: 0,
+                riskProfile: {
+                    ...profile,
+                    maxAdvanceLimit: 0,
+                },
+                decisionReason: 'NO ELEGIBLE: no se pudo estimar un horizonte real de repago con la configuración actual.',
+                estimatedPaybackMonths: null,
+                merchantSectorUsed: snapshot.sector,
+                ethicalCapUsed,
+                riskConfigVersionUsed: config.version,
+                riskConfigUpdatedAtUsed: config.updatedAt,
+            };
+        }
+
+        if (estimatedPaybackMonths < minPaybackMonths || estimatedPaybackMonths > maxPaybackMonths) {
+            return {
+                merchantId,
+                storeId,
+                requestedAmount,
+                isEligible: false,
+                approvedAmount: 0,
+                riskProfile: {
+                    ...profile,
+                    maxAdvanceLimit: 0,
+                },
+                decisionReason: `NO ELEGIBLE: el payback estimado (${estimatedPaybackMonths.toFixed(1)} meses) cae fuera de la ventana configurada (${minPaybackMonths}-${maxPaybackMonths} meses).`,
+                estimatedPaybackMonths,
+                merchantSectorUsed: snapshot.sector,
+                ethicalCapUsed,
+                riskConfigVersionUsed: config.version,
+                riskConfigUpdatedAtUsed: config.updatedAt,
+            };
+        }
+    }
+
     return {
         merchantId,
         storeId,
         requestedAmount,
         isEligible,
-        approvedAmount: isEligible ? Math.floor(approvedAmount) : 0, // Redondeamos a entero si es aprobado
+        approvedAmount: isEligible ? Math.floor(approvedAmount) : 0,
         riskProfile: profile,
         decisionReason,
         estimatedPaybackMonths,
-        // Audit fields
         merchantSectorUsed: snapshot.sector,
-        ethicalCapUsed: getEcUsed(snapshot.sector, config),
+        ethicalCapUsed,
         riskConfigVersionUsed: config.version,
         riskConfigUpdatedAtUsed: config.updatedAt,
     };
