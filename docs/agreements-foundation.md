@@ -42,3 +42,7 @@ The existing browser-stored supra-admin token is not reused for Agreements.
 - Explicit production email activation by Carlos.
 
 No email is sent to Steve from this foundation branch.
+
+## Preview environment
+
+Preview is intentionally isolated from production. Any new secret added to Vercel Preview requires a new preview deployment before the runtime can observe it.
