@@ -117,3 +117,47 @@ DROP TRIGGER IF EXISTS block_accepted_version_update ON agreement_versions;
 CREATE TRIGGER block_accepted_version_update
 BEFORE UPDATE OR DELETE ON agreement_versions
 FOR EACH ROW EXECUTE FUNCTION qabum_block_accepted_version_mutation();
+
+
+-- Published snapshots are immutable. Lifecycle fields (status, accepted_at) may change,
+-- but the exact source text, hashes and stored PDF identifiers may not.
+CREATE OR REPLACE FUNCTION qabum_guard_published_version_snapshot()
+RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'Published agreement versions cannot be deleted';
+    END IF;
+
+    IF OLD.agreement_id IS DISTINCT FROM NEW.agreement_id
+       OR OLD.version_code IS DISTINCT FROM NEW.version_code
+       OR OLD.source_revision_id IS DISTINCT FROM NEW.source_revision_id
+       OR OLD.contract_text IS DISTINCT FROM NEW.contract_text
+       OR OLD.contract_text_sha256 IS DISTINCT FROM NEW.contract_text_sha256
+       OR OLD.pdf_object_key IS DISTINCT FROM NEW.pdf_object_key
+       OR OLD.pdf_sha256 IS DISTINCT FROM NEW.pdf_sha256
+       OR OLD.published_at IS DISTINCT FROM NEW.published_at
+       OR OLD.published_by IS DISTINCT FROM NEW.published_by THEN
+        RAISE EXCEPTION 'Published agreement snapshot fields are immutable';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS a_guard_published_version_snapshot ON agreement_versions;
+CREATE TRIGGER a_guard_published_version_snapshot
+BEFORE UPDATE OR DELETE ON agreement_versions
+FOR EACH ROW EXECUTE FUNCTION qabum_guard_published_version_snapshot();
+
+-- Audit events are append-only evidence.
+CREATE OR REPLACE FUNCTION qabum_block_audit_mutation()
+RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'Qabum agreement audit events are append-only';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS a_block_agreement_events_mutation ON agreement_events;
+CREATE TRIGGER a_block_agreement_events_mutation
+BEFORE UPDATE OR DELETE ON agreement_events
+FOR EACH ROW EXECUTE FUNCTION qabum_block_audit_mutation();
