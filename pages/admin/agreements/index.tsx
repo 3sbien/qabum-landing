@@ -5,6 +5,7 @@ type AdminStatus = {
   authenticated: boolean;
   runtime?: {
     databaseConfigured: boolean;
+    storageConfigured: boolean;
     canonicalGoogleDocConfigured: boolean;
     emailEnabled: boolean;
     emailProviderConfigured: boolean;
@@ -104,14 +105,15 @@ export default function AgreementsAdminPage() {
                 <Item label="Canonical draft" value="Connected by document ID" />
                 <Item label="Planned first version" value={status.canonicalDraft?.plannedInitialVersion || '—'} />
                 <Item label="Database" value={status.runtime?.databaseConfigured ? 'Configured' : 'Pending'} />
+                <Item label="Private PDF storage" value={status.runtime?.storageConfigured ? 'Configured' : 'Pending'} />
                 <Item label="Email provider" value={status.runtime?.emailProviderConfigured ? 'Configured' : 'Pending'} />
                 <Item label="Production email" value={status.runtime?.emailEnabled ? 'ENABLED' : 'LOCKED'} />
                 <Item label="Test recipient" value={status.notifications?.testRecipient || '—'} />
               </dl>
 
               <p style={styles.muted}>
-                Publishing and acceptance controls will remain unavailable until persistent database,
-                immutable PDF storage and Google export credentials are configured and verified.
+                Publishing and acceptance controls remain unavailable until the persistent database,
+                private immutable PDF storage and Google export credentials are configured and verified.
               </p>
 
               {status.canonicalDraft?.url && (
