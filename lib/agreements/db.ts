@@ -1,18 +1,12 @@
 import { neon } from '@neondatabase/serverless';
 
-let client: ReturnType<typeof neon> | null = null;
-
 export function getAgreementsDb() {
   const connectionString = process.env.QABUM_AGREEMENTS_DATABASE_URL;
   if (!connectionString) {
     throw new Error('QABUM_AGREEMENTS_DATABASE_URL is not configured');
   }
 
-  if (!client) {
-    client = neon(connectionString);
-  }
-
-  return client;
+  return neon(connectionString);
 }
 
 export async function verifyAgreementsDatabase(): Promise<boolean> {
@@ -23,5 +17,6 @@ export async function verifyAgreementsDatabase(): Promise<boolean> {
       current_user AS database_user
   `;
 
-  return rows.length === 1 && rows[0]?.database_name === 'qabum_agreements';
+  const first = rows[0] as { database_name?: string } | undefined;
+  return first?.database_name === 'qabum_agreements';
 }
