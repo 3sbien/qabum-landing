@@ -48,3 +48,27 @@ No email is sent to Steve from this foundation branch.
 Preview is intentionally isolated from production. Any new secret added to Vercel Preview requires a new preview deployment before the runtime can observe it. Admin authentication secrets are also Preview-only during this foundation phase.
 
 <!-- preview refresh after admin password rotation -->
+
+
+## Database least-privilege model
+
+The application must not run with the database-owner role in production.
+
+- Schema/database owner: qabum_agreements_app
+- Restricted application role: qabum_agreements_runtime
+- Runtime role has no DELETE privileges and no schema ownership.
+- Acceptance records and audit events are protected by database triggers in addition to restricted grants.
+- Published snapshot fields are immutable; only lifecycle status fields may change.
+
+## Private PDF storage
+
+Neon Object Storage is enabled with a private bucket:
+
+- Bucket: qabum-agreements
+- Region: us-east-1
+- Access: private
+- Application credentials must be supplied only through:
+  - QABUM_AGREEMENTS_STORAGE_ACCESS_KEY_ID
+  - QABUM_AGREEMENTS_STORAGE_SECRET_ACCESS_KEY
+
+The application refuses to overwrite an existing immutable agreement object.
