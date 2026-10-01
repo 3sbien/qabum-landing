@@ -13,6 +13,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let databaseLive = false;
   let storageLive = false;
   let storageError: { name?: string; statusCode?: number } | null = null;
+  const storageAccessKey = process.env.QABUM_AGREEMENTS_STORAGE_ACCESS_KEY_ID || '';
+  const storageAccessKeyFormat = {
+    startsWithExpectedPrefix: storageAccessKey.startsWith('nak_live_'),
+    hasOuterQuotes:
+      (storageAccessKey.startsWith('"') && storageAccessKey.endsWith('"')) ||
+      (storageAccessKey.startsWith("'") && storageAccessKey.endsWith("'")),
+    hasOuterWhitespace: storageAccessKey !== storageAccessKey.trim(),
+  };
 
   if (process.env.VERCEL_ENV === 'preview') {
     try {
@@ -44,6 +52,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     storageConfigured: status.storageConfigured,
     storageLive,
     storageError,
+    storageAccessKeyFormat,
     canonicalGoogleDocConfigured: status.canonicalGoogleDocConfigured,
     emailEnabled: status.emailEnabled,
     adminPasswordConfigured: Boolean(process.env.QABUM_AGREEMENTS_ADMIN_PASSWORD),
