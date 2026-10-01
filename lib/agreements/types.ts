@@ -52,6 +52,7 @@ export interface AcceptanceEvidence {
 
 export interface AgreementsRuntimeStatus {
   databaseConfigured: boolean;
+  storageConfigured: boolean;
   canonicalGoogleDocConfigured: boolean;
   emailEnabled: boolean;
   emailProviderConfigured: boolean;
