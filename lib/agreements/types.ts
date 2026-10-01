@@ -59,3 +59,18 @@ export interface AgreementsRuntimeStatus {
   testRecipient: string;
   productionRecipientsLocked: boolean;
 }
+
+
+export interface AgreementEmailEnvelope {
+  from: string;
+  to: string[];
+  bcc: string[];
+}
+
+export interface AcceptanceConfirmationView {
+  versionCode: string;
+  acceptedAtUtc: string;
+  recipientEmails: string[];
+  acceptanceId: string;
+  acceptedDocumentDownloadAvailable: boolean;
+}
