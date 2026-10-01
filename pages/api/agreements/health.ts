@@ -12,6 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const status = getAgreementsRuntimeStatus();
   let databaseLive = false;
   let storageLive = false;
+  let storageError: { name?: string; statusCode?: number } | null = null;
 
   if (process.env.VERCEL_ENV === 'preview') {
     try {
@@ -20,7 +21,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
       storageLive = await verifyAgreementsStorage();
-    } catch {}
+    } catch (error) {
+      const storageFailure = error as {
+        name?: string;
+        $metadata?: { httpStatusCode?: number };
+      };
+      storageError = {
+        name: storageFailure?.name,
+        statusCode: storageFailure?.$metadata?.httpStatusCode,
+      };
+    }
   }
 
   res.setHeader('Cache-Control', 'no-store');
@@ -33,6 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     databaseLive,
     storageConfigured: status.storageConfigured,
     storageLive,
+    storageError,
     canonicalGoogleDocConfigured: status.canonicalGoogleDocConfigured,
     emailEnabled: status.emailEnabled,
     adminPasswordConfigured: Boolean(process.env.QABUM_AGREEMENTS_ADMIN_PASSWORD),
