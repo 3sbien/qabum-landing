@@ -1,6 +1,8 @@
 import type { AgreementsRuntimeStatus } from './types';
 import { isAgreementsStorageConfigured } from './storage';
 
+export const AGREEMENTS_FROM_EMAIL = 'cfounder@qabum.com';
+export const AGREEMENTS_BCC_EMAIL = '3sbien@gmail.com';
 export const AGREEMENTS_TEST_RECIPIENT = '3sbien@gmail.com';
 export const CARLOS_NOTIFICATION_EMAILS = [
   'carloslandazuri@gmail.com',
@@ -34,14 +36,30 @@ export function getAgreementsRuntimeStatus(): AgreementsRuntimeStatus {
   };
 }
 
-export function assertSafeEmailRecipient(email: string): void {
+export function normalizeAgreementRecipients(emails: string[]): string[] {
+  const normalized = emails
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+
+  return [...new Set(normalized)];
+}
+
+export function assertSafeEmailRecipients(emails: string[]): void {
   if (process.env.QABUM_AGREEMENTS_EMAIL_ENABLED === 'true') {
     return;
   }
 
-  if (email.trim().toLowerCase() !== AGREEMENTS_TEST_RECIPIENT) {
+  const recipients = normalizeAgreementRecipients(emails);
+  if (
+    recipients.length !== 1 ||
+    recipients[0] !== AGREEMENTS_TEST_RECIPIENT
+  ) {
     throw new Error(
       'Agreements email is in safe test mode. Only 3sbien@gmail.com may receive messages.',
     );
   }
+}
+
+export function assertSafeEmailRecipient(email: string): void {
+  assertSafeEmailRecipients([email]);
 }
