@@ -16,6 +16,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     databaseConfigured: status.databaseConfigured,
     canonicalGoogleDocConfigured: status.canonicalGoogleDocConfigured,
     emailEnabled: status.emailEnabled,
+    adminPasswordConfigured: Boolean(process.env.QABUM_AGREEMENTS_ADMIN_PASSWORD),
+    adminSecretConfigured: Boolean(process.env.QABUM_AGREEMENTS_ADMIN_SECRET),
     testRecipient: status.testRecipient,
   });
 }
