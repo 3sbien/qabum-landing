@@ -76,3 +76,32 @@ The application refuses to overwrite an existing immutable agreement object.
 <!-- preview refresh after private storage credentials -->
 
 <!-- preview refresh after storage credentials -->
+
+
+## Email routing policy
+
+Agreement emails use a fixed server-side sender and blind-copy policy:
+
+- From: `cfounder@qabum.com` (fixed; not editable by the administrator).
+- To: one or more administrator-entered recipient addresses for the specific agreement.
+- BCC: `3sbien@gmail.com` (fixed; not shown to the counterparty).
+- The same `To` addresses receive both the acceptance invitation and the final accepted agreement/certificate.
+- The exact `To` recipients and server-side BCC used for each outbound message must be retained in the audit record.
+- In SAFE TEST MODE, no counterparty address may receive email. Only `3sbien@gmail.com` is permitted until production email is explicitly enabled by Carlos.
+
+Recipient addresses are agreement-specific data and must not be hardcoded for Steve or any other counterparty.
+
+## Post-acceptance confirmation UX
+
+Immediately after a successful acceptance transaction, the accepting party must see a clear confirmation page containing:
+
+- “Agreement accepted successfully.”
+- The immutable version code accepted.
+- The exact acceptance date/time.
+- The `To` email address or addresses that will receive the accepted copy.
+- The unique Acceptance ID.
+- A “Download Accepted Agreement” control when the accepted PDF is available.
+
+The fixed BCC address must never be shown to the counterparty.
+
+The UI must not claim that email “has been sent” until the email provider has positively confirmed the send operation. Before that confirmation, wording such as “will be sent” is required.
