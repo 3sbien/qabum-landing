@@ -2,6 +2,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
+  ListObjectsV2Command,
   S3Client,
 } from '@aws-sdk/client-s3';
 
@@ -96,4 +97,16 @@ export async function getAgreementObject(objectKey: string): Promise<Buffer> {
 
   const bytes = await result.Body.transformToByteArray();
   return Buffer.from(bytes);
+}
+
+
+export async function verifyAgreementsStorage(): Promise<boolean> {
+  const storage = getAgreementsStorage();
+  await storage.send(
+    new ListObjectsV2Command({
+      Bucket: AGREEMENTS_STORAGE_BUCKET,
+      MaxKeys: 1,
+    }),
+  );
+  return true;
 }
