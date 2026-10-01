@@ -14,6 +14,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     module: 'agreements',
     mode: status.emailEnabled ? 'production-email-enabled' : 'safe-test',
     databaseConfigured: status.databaseConfigured,
+    storageConfigured: status.storageConfigured,
     canonicalGoogleDocConfigured: status.canonicalGoogleDocConfigured,
     emailEnabled: status.emailEnabled,
     adminPasswordConfigured: Boolean(process.env.QABUM_AGREEMENTS_ADMIN_PASSWORD),
