@@ -1,4 +1,5 @@
 import type { AgreementsRuntimeStatus } from './types';
+import { isAgreementsStorageConfigured } from './storage';
 
 export const AGREEMENTS_TEST_RECIPIENT = '3sbien@gmail.com';
 export const CARLOS_NOTIFICATION_EMAILS = [
@@ -24,6 +25,7 @@ export function getAgreementsRuntimeStatus(): AgreementsRuntimeStatus {
 
   return {
     databaseConfigured: Boolean(process.env.QABUM_AGREEMENTS_DATABASE_URL),
+    storageConfigured: isAgreementsStorageConfigured(),
     canonicalGoogleDocConfigured: true,
     emailEnabled,
     emailProviderConfigured: Boolean(process.env.QABUM_RESEND_API_KEY),
