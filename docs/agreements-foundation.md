@@ -46,3 +46,5 @@ No email is sent to Steve from this foundation branch.
 ## Preview environment
 
 Preview is intentionally isolated from production. Any new secret added to Vercel Preview requires a new preview deployment before the runtime can observe it. Admin authentication secrets are also Preview-only during this foundation phase.
+
+<!-- preview refresh after admin password rotation -->
