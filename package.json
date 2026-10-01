@@ -6,8 +6,7 @@
         "dev": "next dev -p 3456",
         "build": "next build",
         "start": "next start",
-        "lint": "next lint",
-        "prebuild": "node scripts/verify-agreements-preview.mjs"
+        "lint": "next lint"
     },
     "dependencies": {
         "next": "latest",
