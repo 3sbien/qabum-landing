@@ -72,3 +72,5 @@ Neon Object Storage is enabled with a private bucket:
   - QABUM_AGREEMENTS_STORAGE_SECRET_ACCESS_KEY
 
 The application refuses to overwrite an existing immutable agreement object.
+
+<!-- preview refresh after private storage credentials -->
